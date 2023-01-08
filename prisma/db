@@ -1,0 +1,27 @@
+#!/bin/bash
+set -eu
+
+# (Re)create local DB "test" for `npm run test`
+# and local DB "start" for `npm start`.
+#
+# Usage example:
+#   prisma/db
+#   . prisma/url test
+#   prisma migrate status
+
+docker-compose down -v
+docker-compose up -d
+
+until docker-compose exec db pg_isready -q -U postgres -d test
+do sleep 0.1
+done
+
+. prisma/url test
+npx prisma migrate deploy
+
+docker-compose exec db psql -U postgres -d test -c 'CREATE DATABASE "start"'
+. prisma/url start
+npx prisma migrate deploy
+npm run psql:data < prisma/start.sql
+
+npm run build

@@ -1,0 +1,6 @@
+query Items($names: [String!]!) {
+    items(where: { name: { in: $names } }) {
+        id
+        name
+    }
+}

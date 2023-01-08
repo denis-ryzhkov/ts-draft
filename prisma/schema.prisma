@@ -1,0 +1,87 @@
+// Prisma schema, that generates:
+// - SQL migrations
+// - TypeScript DB client
+// - GraphQL CRUD API
+//
+// Docs:
+// - Prisma schema guide: https://www.prisma.io/docs/concepts/components/prisma-schema
+// - Prisma schema reference: https://www.prisma.io/docs/reference/api-reference/prisma-schema-reference
+//
+// Decisions:
+// - Don't use unconfigurable `prisma format` tool:
+//   - To keep `git diff` clean when adding one column.
+//   - To keep `@@index` near the indexed field, not in the bottom of the table.
+// - Don't use Prisma `enum {...}`:
+//   - To avoid drawbacks of native PG enums:
+//     https://hasura.io/docs/latest/schema/postgres/enums/#pg-native-enum
+//   - To allow dynamic CRUD of enum values by allowed client roles.
+
+/// PostgreSQL
+datasource db {
+    provider = "postgresql"
+    url = env("DATABASE_URL")
+}
+
+/// TypeScript DB client
+generator client {
+    provider = "prisma-client-js"
+
+    // https://www.prisma.io/docs/guides/deployment/deployment-guides/deploying-to-aws-lambda#binary-targets-in-schemaprisma
+    binaryTargets = ["native", "rhel-openssl-1.0.x"]
+}
+
+/// GraphQL CRUD API
+generator typegraphql {
+    provider = "typegraphql-prisma"
+
+    // Let's use "unchecked" inputs (better be called "unnested" inputs)
+    // instead of default "nested" inputs for creating/updating relations, because:
+    // 1. Unnested inputs does not need to do SELECT of related object
+    //    prior to doing INSERT or UDPDATE of main one.
+    //    As we use foreign keys, data intergity is checked on Postgres level already.
+    //    So unnested inputs are faster than nested inputs, but still safely checked.
+    // 2. Unnested inputs are simple: `itemId: item.id`,
+    //    while nested are complex: `item: { connect: { id: item.id } }`.
+    // 3. We want to use simple and safe string foreign key enums like `type: "value"`.
+    //    Prisma requires to also define relations like `typeRow` to achieve it.
+    //    We use `TypeGraphQL.omit` to hide these relations we won't use directly,
+    //    which with nested inputs leads to both `typeRow` and `type` fields hidden.
+    //    With -unchecked- unnested inputs, `type` and others work perfectly.
+    useUncheckedScalarInputs = true
+}
+
+/// An item of data.
+model Item {
+
+    /// Item ID.
+    id String @id @default(cuid())
+
+    /// When this item was created.
+    createdAt DateTime @db.Timestamptz(6) @default(now())
+    @@index([createdAt])
+
+    /// When this item was updated.
+    updatedAt DateTime @db.Timestamptz(6) @updatedAt
+
+    /// Hidden relation used to create `type` foreign key below.
+    /// @TypeGraphQL.omit(input: true, output: true)
+    typeRow ItemType @relation(fields: [type], references: [name], onDelete: Restrict, onUpdate: Restrict)
+
+    /// Type of the item.
+    type String
+
+    /// Name of the item.
+    name String
+    @@index([name])
+}
+
+/// Type of the item.
+model ItemType {
+
+    /// The only field.
+    name String @id
+
+    /// Hidden relation, required by Prisma.
+    /// @TypeGraphQL.omit(input: true, output: true)
+    items Item[]
+}
